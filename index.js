@@ -28,6 +28,8 @@ const generateTrackingId = () => {
 app.use(express.json());
 app.use(cors());
 
+// verify with fbtoken
+
 const verifyFbToken = async (req, res, next) => {
   // console.log("header in middlewares : ", req.headers.authorization);
   const token = req.headers.authorization;
@@ -68,6 +70,25 @@ async function run() {
     const db = client.db("zapShiftUpdate");
     const parcelCollection = db.collection("parcels");
     const paymentCollection = db.collection("payments");
+    const userCollection = db.collection("users");
+    const riderCollection = db.collection("riders");
+
+    // users related apis
+
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      user.role = "user";
+      user.createAt = new Date();
+      const email = user.email;
+
+      const userExist = await userCollection.findOne({ email });
+
+      if (userExist) {
+        return res.send({ message: "users exists" });
+      }
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    });
 
     // parcel apis
 
@@ -103,6 +124,66 @@ async function run() {
       const query = { _id: new ObjectId(id) };
       const resullt = await parcelCollection.deleteOne(query);
       res.send(resullt);
+    });
+
+    // rider apis
+
+    app.get("/riders", async (req, res) => {
+      const query = {};
+      const options = { sort: { createAt: -1 } };
+
+      const status = req.query.status;
+      if (status) {
+        query.status = status;
+      }
+      const result = await riderCollection.find(query, options).toArray();
+      res.send(result);
+    });
+
+    app.patch("/riders/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const status = req.body.status;
+      const update = {
+        $set: {
+          status: status,
+        },
+      };
+      const result = await riderCollection.updateOne(query, update);
+
+      if (status === "approved") {
+        const email = req.body.email;
+        const userQuery = { email };
+        const updateUser = {
+          $set: { role: "rider" },
+        };
+
+        const userResult = await userCollection.updateOne(
+          userQuery,
+          updateUser,
+        );
+
+        // res.send(result);
+      }
+
+      res.send(result);
+    });
+
+    app.delete("/riders/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await riderCollection.deleteOne(query);
+
+      res.send(result);
+    });
+
+    app.post("/riders", async (req, res) => {
+      const rider = req.body;
+      rider.status = "pending";
+      rider.createAt = new Date();
+
+      const result = await riderCollection.insertOne(rider);
+      res.send(result);
     });
 
     // payment related apis
@@ -146,7 +227,6 @@ async function run() {
       const paymentExist = await paymentCollection.findOne(query);
 
       // console.log(paymentExist);
-      const trackingId = generateTrackingId();
 
       if (paymentExist) {
         return res.send({
@@ -155,6 +235,8 @@ async function run() {
           trackingId: paymentExist.trackingId,
         });
       }
+
+      const trackingId = generateTrackingId();
 
       if (session.payment_status === "paid") {
         const id = session.metadata.parcelId;
@@ -246,7 +328,10 @@ async function run() {
         }
       }
 
-      const result = await paymentCollection.find(query).toArray();
+      const result = await paymentCollection
+        .find(query)
+        .sort({ paidAt: -1 })
+        .toArray();
       res.send(result);
     });
 
