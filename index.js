@@ -80,6 +80,19 @@ async function run() {
       res.send(result);
     });
 
+    app.patch("/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const role = req.body.role;
+      const query = { _id: new ObjectId(id) };
+      const updateDocs = {
+        $set: {
+          role: role,
+        },
+      };
+      const result = await userCollection.updateOne(query, updateDocs);
+      res.send(result);
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
       user.role = "user";
