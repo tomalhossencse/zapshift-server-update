@@ -75,12 +75,16 @@ async function run() {
 
     // users related apis
 
+    app.get("/users", verifyFbToken, async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
     app.post("/users", async (req, res) => {
       const user = req.body;
       user.role = "user";
       user.createAt = new Date();
       const email = user.email;
-
       const userExist = await userCollection.findOne({ email });
 
       if (userExist) {
