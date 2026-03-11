@@ -72,6 +72,7 @@ async function run() {
     const paymentCollection = db.collection("payments");
     const userCollection = db.collection("users");
     const riderCollection = db.collection("riders");
+    const trackingCollection = db.collection("trackings");
 
     //  middleware admin before allowing admin acitivity
     //  must be used after verifyFbToken middleware
@@ -85,6 +86,18 @@ async function run() {
         return res.status(403).send({ message: "Forbidden access" });
       }
       next();
+    };
+
+    const logTracking = async (trackingId, status) => {
+      const log = {
+        trackingId,
+        status,
+        details: status.split("_").join(" "),
+        createAt: new Date(),
+      };
+
+      const result = await trackingCollection.insertOne(log);
+      return result;
     };
 
     // users related apis
@@ -174,7 +187,10 @@ async function run() {
         query.deliveryStatus = deliveryStatus;
       }
 
-      const result = await parcelCollection.find(query).toArray();
+      const result = await parcelCollection
+        .find(query)
+        .sort({ createAt: -1 })
+        .toArray();
       res.send(result);
     });
 
@@ -201,7 +217,7 @@ async function run() {
     });
 
     app.patch("/parcels/:id", async (req, res) => {
-      const { riderName, riderEmail, riderId, parcelId } = req.body;
+      const { riderName, riderEmail, riderId, trackingId } = req.body;
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const updateDoc = {
@@ -226,12 +242,14 @@ async function run() {
         riderQuery,
         riderUpdatedDoc,
       );
+      // log tracking
+      logTracking(trackingId, "rider_assigned");
 
       res.send(riderResult);
     });
 
     app.patch("/parcels/:id/status", async (req, res) => {
-      const { deliveryStatus, riderId } = req.body;
+      const { deliveryStatus, riderId, trackingId } = req.body;
       const query = { _id: new ObjectId(req.params.id) };
       const updatedDoc = {
         $set: {
@@ -247,12 +265,12 @@ async function run() {
             workStatus: "available",
           },
         };
-        const riderResult = await riderCollection.updateOne(
-          riderQuery,
-          riderUpdatedDoc,
-        );
+        await riderCollection.updateOne(riderQuery, riderUpdatedDoc);
       }
       const result = await parcelCollection.updateOne(query, updatedDoc);
+      // log tracking
+
+      logTracking(trackingId, deliveryStatus);
       res.send(result);
     });
 
@@ -378,7 +396,7 @@ async function run() {
         const update = {
           $set: {
             paymentStatus: "paid",
-            deliveryStatus: "pending-pickup",
+            deliveryStatus: "pending_pickup",
             trackingId,
           },
         };
@@ -397,16 +415,16 @@ async function run() {
           trackingId: trackingId,
         };
 
-        if (session.payment_status === "paid") {
-          const resultPayment = await paymentCollection.insertOne(payment);
-          res.send({
-            success: true,
-            modifyPayment: result,
-            paymentInfo: resultPayment,
-            trackingId: trackingId,
-            transactionId: session.payment_intent,
-          });
-        }
+        logTracking(trackingId, "pending_pickup");
+
+        const resultPayment = await paymentCollection.insertOne(payment);
+        res.send({
+          success: true,
+          modifyPayment: result,
+          paymentInfo: resultPayment,
+          trackingId: trackingId,
+          transactionId: session.payment_intent,
+        });
       }
 
       // console.log("session retrive data :", session);
@@ -457,7 +475,7 @@ async function run() {
 
         // cheack email address
         if (email !== req.decoded_email) {
-          return res.status(403).send({ message: "Fibidden Access" });
+          return res.status(403).send({ message: "Forbidden Access" });
         }
       }
 
