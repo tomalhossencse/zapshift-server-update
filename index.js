@@ -12,6 +12,7 @@ const crypto = require("crypto");
 const admin = require("firebase-admin");
 
 const serviceAccount = require("./zapshift-update-fb-sdk.json");
+const { count } = require("console");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -83,6 +84,16 @@ async function run() {
       const user = await userCollection.findOne(query);
 
       if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      next();
+    };
+    const verfiyRider = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+
+      if (!user || user.role !== "rider") {
         return res.status(403).send({ message: "Forbidden access" });
       }
       next();
@@ -203,8 +214,35 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/parcels/delivery-status/stats", async (req, res) => {
+      const pipline = [
+        {
+          $group: {
+            _id: "$deliveryStatus",
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            status: "$_id",
+            count: 1,
+            // _id: 0,
+          },
+        },
+      ];
+
+      const result = await parcelCollection.aggregate(pipline).toArray();
+      res.send(result);
+    });
+
     app.post("/parcels", async (req, res) => {
       const parcel = req.body;
+
+      const trackingId = generateTrackingId();
+      parcel.trackingId = trackingId;
+
+      logTracking(trackingId, "parcel_created");
+
       const resullt = await parcelCollection.insertOne(parcel);
       res.send(resullt);
     });
@@ -359,6 +397,7 @@ async function run() {
         metadata: {
           parcelId: paymentInfo.parcelId,
           parcelName: paymentInfo.parcelName,
+          trackingId: paymentInfo.trackingId,
         },
         mode: "payment",
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
@@ -385,10 +424,11 @@ async function run() {
           trackingId: paymentExist.trackingId,
         });
       }
-
-      const trackingId = generateTrackingId();
+      // use the previous tracking id created during the parcel created which was set to the session meta data during session creation
+      // const trackingId = generateTrackingId();
 
       if (session.payment_status === "paid") {
+        const trackingId = session.metadata.trackingId;
         const id = session.metadata.parcelId;
 
         const query = { _id: new ObjectId(id) };
@@ -397,7 +437,6 @@ async function run() {
           $set: {
             paymentStatus: "paid",
             deliveryStatus: "pending_pickup",
-            trackingId,
           },
         };
 
@@ -415,10 +454,11 @@ async function run() {
           trackingId: trackingId,
         };
 
+        const resultPayment = await paymentCollection.insertOne(payment);
+
         logTracking(trackingId, "pending_pickup");
 
-        const resultPayment = await paymentCollection.insertOne(payment);
-        res.send({
+        return res.send({
           success: true,
           modifyPayment: result,
           paymentInfo: resultPayment,
@@ -429,7 +469,7 @@ async function run() {
 
       // console.log("session retrive data :", session);
 
-      res.send({ success: false });
+      return res.send({ success: false });
     });
 
     // old
@@ -482,6 +522,18 @@ async function run() {
       const result = await paymentCollection
         .find(query)
         .sort({ paidAt: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    // tracking related apis
+
+    app.get("/trackings/:trackingId/logs", async (req, res) => {
+      const trackingId = req.params.trackingId;
+      const query = { trackingId };
+      const result = await trackingCollection
+        .find(query)
+        .sort({ createAt: -1 })
         .toArray();
       res.send(result);
     });
