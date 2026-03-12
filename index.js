@@ -332,6 +332,54 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/riders/delivery-per-day", async (req, res) => {
+      const email = req.query.email;
+
+      // aggregate on parcel
+
+      const pipline = [
+        {
+          $match: {
+            riderEmail: email,
+            deliveryStatus: "parcel_delivered",
+          },
+        },
+
+        {
+          $lookup: {
+            from: "trackings",
+            localField: "trackingId",
+            foreignField: "trackingId",
+            as: "parcel_trackings",
+          },
+        },
+        {
+          $unwind: "$parcel_trackings",
+        },
+        {
+          $match: {
+            "parcel_trackings.status": "parcel_delivered",
+          },
+        },
+
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: "%Y-%m-%d",
+                date: "$parcel_trackings.createAt", // tracking date field
+              },
+            },
+            totalDelivery: { $sum: 1 },
+          },
+        },
+      ];
+
+      const result = await parcelCollection.aggregate(pipline).toArray();
+
+      res.send(result);
+    });
+
     app.patch("/riders/:id", verifyFbToken, verfiyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
