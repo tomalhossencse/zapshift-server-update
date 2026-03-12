@@ -11,8 +11,12 @@ const crypto = require("crypto");
 
 const admin = require("firebase-admin");
 
-const serviceAccount = require("./zapshift-update-fb-sdk.json");
-const { count } = require("console");
+// const serviceAccount = require("./zapshift-update-fb-sdk.json");
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8",
+);
+
+const serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -32,7 +36,6 @@ app.use(cors());
 // verify with fbtoken
 
 const verifyFbToken = async (req, res, next) => {
-  // console.log("header in middlewares : ", req.headers.authorization);
   const token = req.headers.authorization;
 
   if (!token) {
@@ -586,10 +589,10 @@ async function run() {
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "❤️Pinged your deployment. You successfully connected to MongoDB!",
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!",
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();

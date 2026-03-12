@@ -1,3 +1,4 @@
 node_modules
 .env
 zapshift-update-fb-sdk.json
+.vercel
